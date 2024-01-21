@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #define MAXLINE 1000
-#define LIMIT 80
+#define LIMIT 30
 
 
 

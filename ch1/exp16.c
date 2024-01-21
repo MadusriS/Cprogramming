@@ -1,40 +1,37 @@
-#include<stdio.h>
-int getline(char s[],int lim)
-{
-    int c,i;
-    for(i=0;i<lim-1&&(c=getchar())!=EOF&&c!='\n';++i)
-        s[i]=c;
-    if(c=='\n')
-    {
-        s[i]=c;
+#include <stdio.h>
+#include <string.h> 
+
+#define MAXLINE 1000
+
+int my_getline(char s[], int lim) {
+    int c, i;
+    for (i = 0; i < lim - 1 && (c = getchar()) != EOF && c != '\n'; ++i)
+        s[i] = c;
+    if (c == '\n') {
+        s[i] = c;
         ++i;
     }
-    if(c!=EOF)
-    {
-        while((c=getchar())!=EOF&&c!='\n')
-            i++;
-    }
-    s[i]='\0';
+    s[i] = '\0';
     return i;
 }
-    #define MAXLINE 1000
+
+int main() {
     int len;
-    int max;
+    int max = 0;
     char line[MAXLINE];
     char longest[MAXLINE];
 
-    max=0;
-    while((len=getline(line,MAXLINE))>1)
-    {
-        if(len>max)
-        {
-            max=len;
-            copy(longest,line);
+    while ((len = my_getline(line, MAXLINE)) > 1) {
+        if (len > max) {
+            max = len;
+            strncpy(longest, line, MAXLINE);
         }
     }
-    if(max>0)
-    {
-        printf("%d:%s",max,longest);
+
+    if (max > 0) {
+        printf("%d:%s", max, longest);
     }
+
     return 0;
+}
 
