@@ -1,19 +1,16 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
-#include <stdlib.h>  // Include necessary header for malloc
-
+#include <stdlib.h>  
 #define MAXWORD 100
 #define HASHSIZE 101
-
 struct nlist {
     struct nlist *next;
     char *name;
     char *defn;
 };
-
-struct nlist *hashtab[HASHSIZE];  // Assuming this array is declared somewhere
-unsigned hash(char *s);  // Add this declaration at the beginning of your code
+struct nlist *hashtab[HASHSIZE];  
+unsigned hash(char *s); 
 
 void error(int, char*);
 int getch(void);
@@ -22,11 +19,9 @@ int getword(char *, int);
 struct nlist *install(char *, char *);
 struct nlist *lookup(char *);
 void skipblanks(void);
-int undef(char *);  // Corrected the return type
+int undef(char *);  
 void ungetch(int);
 void ungets(char *);
-
-// simple version of #define processor
 int main()
 {
     char w[MAXWORD];
@@ -40,10 +35,8 @@ int main()
             printf("%s", w);
         else
             ungets(p->defn);
-    return 0;  // Added a return statement
+    return 0;  
 }
-
-// getdef: get definition and install it
 void getdef()
 {
     int c, i;
@@ -75,20 +68,16 @@ void getdef()
     } else
         error(dir[0], "getdef: expecting a directive after #");
 }
-
-// undef: remove a name and definition from the table
 int undef(char *name)
 {
     struct nlist *np1, *np2;
 
-    if ((np1 = lookup(name)) == NULL) /* name not found */
+    if ((np1 = lookup(name)) == NULL) 
         return 1;
 
     for (np1 = np2 = hashtab[hash(name)]; np1 != NULL;
          np2 = np1, np1 = np1->next) {
-        if (strcmp(name, np1->name) == 0) { /* name found */
-
-            /* Remove node from list */
+        if (strcmp(name, np1->name) == 0) { 
             if (np1 == np2)
                 hashtab[hash(name)] = np1->next;
             else
@@ -103,27 +92,21 @@ int undef(char *name)
         }
     }
 
-    return 1; /* name not found */
+    return 1; 
 }
-
-// error: print error message and skip the rest of the line
 void error(int c, char *s)
 {
     printf("error:%s\n", s);
-    while (c != EOF && c != '\n')  // Corrected 'n' to '\n'
+    while (c != EOF && c != '\n')  
         c = getch();
 }
-
-// skipblanks: skip blank and tab characters
 void skipblanks()
 {
     int c;
-    while ((c = getch()) == ' ' || c == '\t')  // Corrected 't' to '\t'
+    while ((c = getch()) == ' ' || c == '\t')  
         ;
     ungetch(c);
 }
-
-/* ungets: push string back onto the input */
 void ungets(char s[])
 {
     int len = strlen(s);
@@ -132,6 +115,4 @@ void ungets(char s[])
         ungetch(s[--len]);
 }
 
-/* note: modify the getword function to return spaces
-   so that the output resembles the input data. */
 

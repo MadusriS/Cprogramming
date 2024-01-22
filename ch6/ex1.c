@@ -62,20 +62,20 @@ int mygetword(char *word, int lim) {
     if (c != EOF)
         *w++ = c;
     if (!isalpha(c)) {
-        if (c == '\"') { /*string constant*/
+        if (c == '\"') { 
             for (c = getch(); c != '\"'; c = getch());
-        } else if (c == '#') { /*preprocessor*/
+        } else if (c == '#') { 
             for (c = getch(); c != '\n'; c = getch());
-        } else if (c == '/')            /*comment*/
-            if ((c = getch()) == '/') { /*single comment*/
+        } else if (c == '/')            
+            if ((c = getch()) == '/') { 
                 for (c = getch(); c != '\n'; c = getch());
-            } else if (c == '*') { /*mutiline comment*/
+            } else if (c == '*') { 
                 for (c = getch(), t = getch(); c != '*' && t != '/';
                      c = getch(), t = getch())
                     ungetch(t);
             } else
                 ungetch(c);
-        else /*underscore*/
+        else 
             for (; !isspace(c) && c != EOF; c = getch());
         if (c != '\"' && c != '\n' && c != '/')
             ungetch(c);
