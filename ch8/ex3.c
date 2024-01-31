@@ -1,4 +1,5 @@
-
+/*flushing:
+Flushing refers to the act of writing any buffered data to its intended destination, such as a file or a display. In the context of file I/O, when data is written to a file, it is often not immediately physically written to the disk. Instead, it might be held in a buffer (temporary storage) to improve efficiency. Flushing ensures that any buffered data is actually written or output.*/
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -26,7 +27,7 @@ typedef struct _iobuf
 enum _flags {
     _READ = 01,  // file open for reading
     _WRITE = 02, // file open for writing
-    _UNBUF = 04, // file is unbuffered
+    _UNBUF = 04, // file is unbuffered//whether the buffer is free or not-in that case directly acces the file charcaters
     _EOF = 010,  // EOF has occurred on this file
     _ERR = 020   // error occurred on this file
 };
@@ -46,7 +47,7 @@ int _flushbuf(int c, FILE *fp);
 #define feof(p) (((p)->flag & _EOF) == _EOF)
 #define ferror(p) (((p)->flag & _ERR) == _ERR)
 #define fileno(p) ((p)->fd)
-#define getc(p) (--(p)->cnt >= 0 ? (unsigned char) *(p)->ptr++ : _fillbuf(p))
+#define getc(p) (--(p)->cnt >= 0 ? (unsigned char) *(p)->ptr++ : _fillbuf(p))//cnt of remaining characters 
 #define putc(x, p) (--(p)->cnt >= 0 ? *(p)->ptr++ = (x) : _flushbuf((x), p))
 #define getchar() getc(stdin)
 #define putchar(x) putc((x), stdout)
@@ -80,7 +81,7 @@ int main(int argc, char *argv[])
     else
         error("usage: ./myfseek input_file output_file");
 
-    if (fseek(fpIn, -1, SEEK_END) == EOF)
+    if (fseek(fpIn, -1, SEEK_END) == EOF)//-1 means traverse from right to left
         error("failed to seek to last char of input file");
     if (fseek(fpOut, 15, SEEK_CUR) == EOF)
         error("failed to seek 15 bytes past the start/end of the output file");
@@ -132,7 +133,7 @@ int _fillbuf(FILE *fp)
 {
     if ((fp->flag & (_READ | _EOF | _ERR)) != _READ) // if _READ is not set or _EOF or _ERR is set
         return EOF; // only _READ should be set out of those three. Return EOF
-    int bufsize = (fp->flag & _UNBUF) ? 1 : BUFSIZ; // get buffer size
+    int bufsize = (fp->flag & _UNBUF) ? 1 : BUFSIZ; // get buffer size//*un buf says whether there is space or not,if no space directly accaess the file*/ 
     if (fp->base == NULL) // no buffer yet
         if ((fp->base = (char *) malloc(bufsize)) == NULL) // create buffer
             return EOF; // failed to create buffer, return EOF
@@ -246,7 +247,7 @@ int fseek(FILE *fp, long offset, int origin)
     }
     else // _READ flag set
     { // the FILE already read bufsize chars by calling read() and stored them in a buffer. However, some chars weren't read by the program and seek doesn't know this
-        if (origin == SEEK_CUR) // Consequently, the program doesn't know the current position in the file. Fortunately, fp->cnt is the number of unread chars in the buffer
+        if (origin == SEEK_CUR) // the program doesn't know the current position in the file. fp->cnt is the number of unread chars in the buffer
         { // so if seeking based on current location (origin == SEEK_CUR), the offset needs to be subtracted by the number of unread buffered chars
             if (offset >= 0 && offset <= fp->cnt) // However, if offset is still in the buffered chars, just move within buffer to prevent unnecessary seeks and reads
             {
@@ -254,7 +255,7 @@ int fseek(FILE *fp, long offset, int origin)
                 fp->cnt -= offset; // update number of chars left in buffer after the move
                 return 0; // return 0 to indicate no errors occurred
             }
-            offset -= fp->cnt; // since not within the buffer, subtract cnt away from the provided offset (negative numbers are okay!).
+            offset -= fp->cnt; // since not within the buffer, subtract cnt away from the provided offset negative numbers are acceptable 
         }
         fp->cnt = 0; // finally, update cnt make the buffer get discarded later. When cnt == 0, getc calls _fillbuf which overwrites the buffer with new content
     }   

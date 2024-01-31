@@ -3,12 +3,12 @@
 #define OPEN_MAX 20
 
 typedef struct _iobuf {
-	int cnt;
+	int cnt;// characters left
 	char *ptr;
 	char *base;
 	int read;
 	int write;
-	int unbuf;
+	int unbuf;/*/* unbuf-means the file stream should not use any buffering,it means every read or write operation will access the file directly without using any intermediatte buffer*/
 	int eof;
 	int err;
 	int fd;
@@ -38,6 +38,16 @@ int _flushbuf(int, FILE *);
 #include <fcntl.h>
 #include <unistd.h>
 #define PERMS 0666
+/*In the context of the provided code, PERMS is a constant defined as 0666. The 0666 octal value corresponds to the decimal value 438.
+
+In Unix-like operating systems, especially when dealing with file permissions, octal values are commonly used. The 0666 permission value represents read (4), write (2), and execute (1) permissions for the file owner, group, and others. However, since it's used in the context of file creation, the execute permission is not applicable.
+So, breaking down 0666:
+Owner permissions: Read (4) + Write (2) = 6
+Group permissions: Read (4) + Write (2) = 6
+Others permissions: Read (4) + Write (2) = 6
+Thus, 0666 grants read and write permissions to the owner, the group, and others.
+
+*/
 
 FILE *fopen(char *name, char *mode)
 {
@@ -100,9 +110,9 @@ int _fillbuf(FILE *fp)
 
 
 
-FILE _iob[OPEN_MAX] = { { 0, (char *)0, (char *)0, 1, 0, 0, 0, 0, 0 },
-			{ 0, (char *)0, (char *)0, 0, 1, 0, 0, 0, 1 },
-			{ 0, (char *)0, (char *)0, 0, 1, 1, 0, 0, 2 } };
+FILE _iob[OPEN_MAX] = { { 0, (char *)0, (char *)0, 1, 0, 0, 0, 0, 0 },//stdin,read
+			{ 0, (char *)0, (char *)0, 0, 1, 0, 0, 0, 1 },//stdout,write
+			{ 0, (char *)0, (char *)0, 0, 1, 1, 0, 0, 2 } };//srderr ,write|unbuf
 
 
 int main(int argc, char *argv[])
