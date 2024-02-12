@@ -70,7 +70,7 @@ flags: Additional flags (usually set to 0).*/
         // Print the timestamp for receiving
         printf("time: [%02d:%02d:%02d] Received message from client: %.*s",
                time_info->tm_hour, time_info->tm_min, time_info->tm_sec,
-               bytes_received, buffer);
+               bytes_received, buffer);/*%.*s  it is a precission, that the formatspecifier s will get only bytes_received number of bytes*/
 /*ssize_t send(int sockfd, const void *buf, size_t len, int flags);
 Description: Sends data to a connected socket.
 sockfd: The socket file descriptor.
@@ -148,6 +148,7 @@ backlog: The maximum length to which the queue of pending connections for the so
 sockfd: The socket file descriptor.
 addr: A pointer to a struct sockaddr where the address of the connecting entity will be stored.
 addrlen: A pointer to the size of the address structure, modified by the function to indicate the actual size.*/
+while(1){
     if ((client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len)) == -1) {
         perror("Error accepting connection");
         exit(EXIT_FAILURE);
@@ -161,6 +162,7 @@ addrlen: A pointer to the size of the address structure, modified by the functio
     handle_client(client_socket);
 
     // Close the server socket
+    }
     close(server_socket);
 
     return 0;

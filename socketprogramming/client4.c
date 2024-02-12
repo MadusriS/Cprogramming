@@ -39,15 +39,15 @@ addr: A pointer to a struct sockaddr containing the server's address information
 addrlen: The size of the addr structure.
 
 The return value of connect() is an integer that indicates the success or failure of the connection attempt*/
-
+int err;
 
     // Connect to the server
-    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+    if (err=connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         perror("Error connecting to server");
         exit(EXIT_FAILURE);
     }
 
-    printf("Connected to the echo server\n");
+    printf("Connected to the echo server%d\n",err);
 
     while (1) {
         // Get current timestamp for sending
