@@ -17,7 +17,7 @@ int main() {
     int opt = 1;
     int master_socket, addrlen, new_socket, client_socket[MAX_CLIENTS], max_clients = MAX_CLIENTS, activity, i, valread;
     struct sockaddr_in address;
-    struct pollfd fds[MAX_CLIENTS + 1]; // Additional space for the master socket
+    struct pollfd fds[MAX_CLIENTS + 1]; // array of structures,+1 for server,Additional space for the master socket
 
     char buffer[1025]; // data buffer of 1K
 
@@ -26,10 +26,10 @@ int main() {
 
     // initialize all client_socket[] to 0 so not checked
     for (i = 0; i < max_clients; i++) {
-        client_socket[i] = 0;
+        client_socket[i] = 0;//initially no client so all 0
     }
 
-    // create a master socket
+    // create a master socket-serversocket
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
@@ -42,7 +42,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    // type of socket created
+    // type of socket created-server address structure
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
@@ -60,12 +60,12 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    // accept the incoming connection
+    // waiting for incoming connections 
     addrlen = sizeof(address);
     puts("Waiting for connections ...");
 
     // Initialize the pollfd structure for the master socket
-    fds[0].fd = master_socket;
+    fds[0].fd = master_socket;//first index of the array will always the server
     fds[0].events = POLLIN;
 
     for (i = 1; i < max_clients + 1; i++) {
@@ -74,13 +74,13 @@ int main() {
 
     while (1) {
         // Use poll to wait for an event
-        activity = poll(fds, max_clients + 1, -1);
+        activity = poll(fds, max_clients + 1, -1);/*if any client connect to server...poll will change the value of revents it will change the activity,<0=error,0=no connection,>0=ready to connect*/
 
         if ((activity < 0) && (errno != EINTR)) {
             printf("poll error");
         }
 
-        // If there is a new incoming connection
+        // If there is a new incoming connection//revents ka value keep changing
         if (fds[0].revents & POLLIN) {
             if ((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0) {
                 perror("accept");
@@ -98,7 +98,7 @@ int main() {
 
             puts("Welcome message sent successfully");
 
-            // add new socket to the array of sockets
+            // add new socket to the array of sockets//since 0 th index for server...start from 1
             for (i = 1; i < max_clients + 1; i++) {
                 if (fds[i].fd == 0) {
                     fds[i].fd = new_socket;

@@ -47,10 +47,10 @@ struct in_addr {
 };
 */
 
-void proxy_to_server(int socket_client, char* port)
+void proxy_to_server(int socket_client)
 {
 	char request[MAX],host_name[MAX],response[MAX];
-	int i,j,k=0,n,socket_server;
+	int i,j,k=0,n,socket_server,bytes_received;
 	size_t r;
   	struct addrinfo *hserv,hints,*p;
 	memset(request,0,sizeof(request));
@@ -67,9 +67,81 @@ count: Number of bytes to read.*/
 			{
 				printf("the Request is:\n");
 				printf("%s\n",request);
-			}
+			}}
 			memset(&host_name,'\0',strlen(host_name));
-			for(i=0;i<sizeof(request)-2;i++)
+			if(strstr(request,"CONNECT")==NULL){
+			 printf("Unsupported HTTP method\n");
+        return;
+    }
+     char *host = strtok(request + 8, ":");
+    char *port_str = strtok(NULL, " ");
+    int port = atoi(port_str);
+    printf("Connecting to %s:%d...\n\n", host, port);
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket < 0) {
+        perror("Failed to create server socket");
+        return;
+    }
+    printf("Proxy Server - %s:%d socket created successfully...\n",host, port);
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    struct hostent *server_hostent = gethostbyname(host);
+    if (server_hostent == NULL) {
+        perror("Failed to resolve destination server");
+        close(server_socket);
+        return;
+    }
+	printf("%s:%d address resolved...\n",host, port);
+    memcpy(&server_addr.sin_addr.s_addr, server_hostent->h_addr, server_hostent->h_length);
+    if (connect(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Failed to connect to destination server");
+        close(server_socket);
+        return;
+    }
+    const char *success_response = "HTTP/1.1 200 Connection established\r\n\r\n";
+    send(socket_client, success_response, strlen(success_response), 0);
+	printf("Connected to %s:%d\n",host, port);
+    fd_set read_fds;
+    int max_fd = (socket_client > server_socket) ? socket_client : server_socket;
+    while (1)
+	{
+        FD_ZERO(&read_fds);
+        FD_SET(socket_client, &read_fds);
+        FD_SET(server_socket, &read_fds);
+        if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0) {
+            perror("Select error");
+            break;
+        }
+        if (FD_ISSET(socket_client, &read_fds)) {
+            bytes_received = recv(socket_client, request, sizeof(request), 0);
+            if (bytes_received <= 0) {
+                break;
+            }
+            send(server_socket, request, bytes_received, 0);
+        }
+        if (FD_ISSET(server_socket, &read_fds)) {
+            bytes_received = recv(server_socket, request, sizeof(request), 0);
+            if (bytes_received <= 0) {
+                break;
+            }
+            send(socket_client, request, bytes_received, 0);
+        }
+    }
+    close(server_socket);
+}
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			/*for(i=0;i<sizeof(request)-2;i++)
 			{	//http://mekkenlar.com
 				if(request[i] == '/' && request[i+1] == '/')
 				{
@@ -139,7 +211,7 @@ count: Number of bytes to read.*/
 		close(socket_client);
 }
 
-
+*/
 
 
 
@@ -183,7 +255,9 @@ int main()
 			exit(-1);		
 		}
 		printf("\nthe Client is connected...\n");
-		proxy_to_server(socket_client, "80");
+		
+		proxy_to_server(socket_client);
+		close(socket_client);
 	}
 	close(socket_server);
 	return 0;

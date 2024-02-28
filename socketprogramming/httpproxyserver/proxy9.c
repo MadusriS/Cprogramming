@@ -8,6 +8,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <poll.h>
+#define maxclients 10
 /*struct sockaddr_in {
     short sin_family;           // Address family, usually AF_INET
     unsigned short sin_port;    // Port number in network byte order
@@ -35,6 +36,8 @@ int is_connect_request(const char *request) {
 }
 
 void handle_connect_request(int socket_client, int socket_server) {
+struct sockaddr_in address;
+int new_socket,addrlen;
     const char* success_response = "HTTP/1.1 200 OK\r\n\r\n";/*The \r\n\r\n denotes the end of the HTTP headers and the beginning of the response body.*/
     send(socket_client, success_response, strlen(success_response), 0);/*
 This line sends the HTTP success response (success_response) to the connected client using the send function. It specifies the socket (socket_client) through which the data will be sent, */
@@ -43,16 +46,17 @@ This line sends the HTTP success response (success_response) to the connected cl
       printf("Connection established...\n");
 
     // Now you can start relaying data between socket_client and socket_server
-    while (1) {
+    
         struct pollfd fds[2];
-
-        fds[0].fd = socket_client;
+        fds[0].fd = socket_server;
         fds[0].events = POLLIN;
+     for(int i=1;i<maxclients+1;i++){
+        fds[i].fd = 0;
+       // fds[i].events = POLLIN;}
 
-        fds[1].fd = socket_server;
-        fds[1].events = POLLIN;
-
-        int ret = poll(fds, 2, -1);
+       
+while (1) {
+        int ret = poll(fds, maxclients+1, -1);
 
         if (ret < 0) {
             perror("Poll error...\n");
@@ -67,6 +71,13 @@ If data is available on socket_server, it is read into a buffer using recv and t
 */
 
         if (fds[0].revents & POLLIN) {
+         if ((new_socket = accept(socket_server, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0) {
+                perror("accept");
+                exit(EXIT_FAILURE);
+            }
+printf("New connection, socket fd is %d, ip is : %s, port : %d\n",
+                   new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+        
             char buffer[MAX];
             ssize_t bytes_received = recv(socket_client, buffer, sizeof(buffer), 0);
 
@@ -74,10 +85,19 @@ If data is available on socket_server, it is read into a buffer using recv and t
                 break;
             }
 
-            send(socket_server, buffer, bytes_received, 0);
+            send(socket_client, buffer, bytes_received, 0);
         }
-
-        if (fds[1].revents & POLLIN) {
+        
+for (i = 1; i < maxclients + 1; i++) {
+                if (fds[i].fd == 0) {
+                    fds[i].fd = new_socket;
+                    fds[i].events = POLLIN;
+                    break;
+                }
+            }        
+for(int i=1;i<maxclients+1;i++){
+        if (fds[i].revents & POLLIN) {
+        int sd = fds[i].fd;
             char buffer[MAX];
             ssize_t bytes_received = recv(socket_server, buffer, sizeof(buffer), 0);
 
@@ -85,13 +105,17 @@ If data is available on socket_server, it is read into a buffer using recv and t
                 break;
             }
 
-            send(socket_client, buffer, bytes_received, 0);
+            send(socket_server, buffer, bytes_received, 0);
+             close(sd);
+                    fds[i].fd = 0;
         }
+        //close(sd);
+                   // fds[i].fd = 0;
     }
 
-    close(socket_client);
+    close(socket_client);}
     close(socket_server);
-}
+}}
 
 void proxy_to_server(int socket_client) {
     char request[MAX];

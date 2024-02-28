@@ -47,6 +47,13 @@ struct in_addr {
 };
 */
 
+
+/*for local host ,in browser request will be:10.39.26.66:8060/file.html----which will turn like http://10.39.26.66:8060/file.html/   8060 is a random port no that we assigned for server*/
+
+/*for remote server ,normally type 3dmekkenler.com----->which will turn like http://3dmekkenler.com/---remote server always have port 80,for local server we have assined 8060*/
+
+/*in mozilla setting we have assigned port number as 1234 that is defined in this proxy code*/
+
 void proxy_to_server(int socket_client, char* port)
 {
 	char request[MAX],host_name[MAX],response[MAX];

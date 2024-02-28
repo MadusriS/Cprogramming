@@ -8,10 +8,11 @@
 #include<netinet/in.h>
 #include<arpa/inet.h>
 
-#define LOCALHOST "10.39.26.66"
+#define LOCALHOST "10.39.26.165"
 #define PORT 8060
 #define FILE_DIR "/home/user/cprogramming/socketprogramming"
 #define MAX_BUFFER_SIZE 1024
+/*for local host ,in browser request will be:10.39.26.66:8060/file.html----which will turn like http://10.39.26.66:8060/file.html/   8060 is a random port no that we assigned for server*/
 
 void send_http_response(int socket_client, const char* response)
 {

@@ -251,7 +251,7 @@ int main()
     }
 
     // Listen for incoming connections
-    if (listen(server_fd, 3) < 0)
+    if (listen(server_fd, 4) < 0)
     {
         perror("error while listening");
         exit(0);
@@ -266,6 +266,7 @@ int main()
     struct pollfd fds[MAX_EVENTS];
     // Number of file descriptors being monitored
     int des = 1;
+    /*In this initialization, des is set to 1 because the poll function will initially monitor only the server socket for incoming connections. As new clients connect, the code dynamically adds their sockets to the poll structure and increments des accordingly:*/
     memset(fds, 0, sizeof(fds));
     /*In the context of a server, when you set fds[0].events = POLLIN, it means the server is interested in detecting whether there is incoming data (readable) on the file descriptor associated with the server socket. This is typically used to check if there are new client connections waiting to be accepted.
 

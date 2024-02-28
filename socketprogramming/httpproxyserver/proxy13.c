@@ -10,7 +10,7 @@
 #include <poll.h>
 
 #define MAX 65536
-#define PORT 8060
+#define PORT 8070
 #define MAX_CLIENTS 100
 
 int is_connect_request(const char *request) {
@@ -177,10 +177,12 @@ int main() {
 In the child process, the parent's socket to the server is closed (socket_server) since it's not needed. Then, the proxy_to_server() function is called to handle communication between the client and the destination server.*/
             close(socket_server);
             proxy_to_server(socket_client);
+            close(socket_client);
             exit(EXIT_SUCCESS);
         } else {
             // Parent process
             /*In the parent process, the client socket (socket_client) is closed since it's no longer needed after forking a child process.*/
+
             close(socket_client);
         }
     }
