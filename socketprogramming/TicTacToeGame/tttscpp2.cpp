@@ -1,78 +1,214 @@
 #include <iostream>
-#include <cstdlib>
-#include <cstring>
+#include <vector>
+#include <thread>
+#include <mutex>
 #include <unistd.h>
-#include <arpa/inet.h>
+#include <cstring>
 #include <openssl/sha.h>
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/buffer.h>
-#include <vector>
-#include <mutex>
-#include <atomic>
-//#include <pthread.h>
-#include<thread>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sstream>
+#include <map>
+
+
 using namespace std;
+int f=-1;
 
-#define BUFFER_SIZE 1024
-#define BOARD_SIZE 3
 #define PORT 3002
+//#define MAX_GAMES 4
+#define BOARD_SIZE 3
 
-std::atomic<int> playerNumberCounter{0};
+
+class WebSocketHandler;
+
 std::mutex gameMutex;
+
+class Player {
+public:
+    int socket;
+    char symbol;
+
+    Player(int sock, char sym) : socket(sock), symbol(sym) {}
+};
 
 class Game {
 public:
     char board[BOARD_SIZE][BOARD_SIZE];
-    int playerCount;
-    std::vector<int> clientSockets;
-
+    std::vector<Player> players;
+    
     Game() {
         initialize();
     }
 
     void initialize() {
-        playerCount = 0;
-        clientSockets.push_back(0);
-    	clientSockets.push_back(0);
+        players.clear();
         memset(board, ' ', sizeof(board));
     }
+    
+
+    bool addPlayer(const Player& player) {
+        if (players.size() < 2) {
+            players.push_back(player);
+            return true;
+        }
+        return false;
+    }
+    static void handleGame(Game* currentGame);
+
+    void broadcastUpdatedBoard(char board[BOARD_SIZE][BOARD_SIZE]);
+    void printboard(char board[BOARD_SIZE][BOARD_SIZE]);    
+    static bool checkWin(char board[BOARD_SIZE][BOARD_SIZE], char symbol);
+    static bool checkDraw(char board[BOARD_SIZE][BOARD_SIZE]);
 };
 
 class WebSocketHandler {
 public:
-    static void encodeAndSend(const char *message, int len, int new_socket);
+    static void sendWebSocketFrame(int socket, const std::string& message);
+    static bool performWebSocketHandshake(int socket);
     static int parseWebSocketFrame(char *buffer, int len, char *output);
+   
 };
 
-void WebSocketHandler::encodeAndSend(const char *message, int len, int new_socket) {
-    char frame[BUFFER_SIZE];
-    frame[0] = 0x81; // Fin bit set, opcode for text data
-    frame[1] = 0x80 | len; // Mask bit set, payload length
+class ClientHandler {
+public:
+    static void handlePlayerMoves(Game* currentGame, int playerNumber);
+    static void handleClient(int clientSocket);
+};
 
-    // Generate random mask key
-    unsigned char mask_key[4];
-    srand(time(NULL));
-    for (int i = 0; i < 4; i++) {
-        mask_key[i] = rand() % 256;
+
+std::map<int, Game> games;
+void Game::printboard(char board[BOARD_SIZE][BOARD_SIZE]){
+   for (int i = 0; i < BOARD_SIZE; i++) {        
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            cout<<i<<j<<" "<<board[i][j]<<" ";
+        }
+        cout<<endl;
     }
 
-    // Copy mask key into frame
-    memcpy(frame + 2, mask_key, 4);
+}
 
-    // Mask the payload
-    for (int i = 0; i < len; i++) {
-        frame[i + 6] = message[i] ^ mask_key[i % 4];
+void Game::broadcastUpdatedBoard(char board[BOARD_SIZE][BOARD_SIZE]) {
+    
+   std::string message="";
+    for (int i = 0; i < BOARD_SIZE; ++i) {
+        for (int j = 0; j < BOARD_SIZE; ++j) {
+        if(board[i][j]=='X' ||board[i][j]=='O'){
+        std::string r=to_string(i);
+        std::string c=to_string(j);
+       
+            message += r;
+            message += ',';
+            message +=c;
+            message +=',';
+            message +=board[i][j];
+           
+            gameMutex.lock();
+            
+             for (const auto& player : players) {
+        WebSocketHandler::sendWebSocketFrame(player.socket, message);
+            
+        }
+        gameMutex.unlock();
+        message.clear();
+        }
+
+    }
+}
+}
+
+void WebSocketHandler::sendWebSocketFrame(int socket, const std::string& message) {
+    std::string frame;
+        frame.push_back(0x81);  // Fin bit set, opcode for text data
+        size_t len = message.size();
+        if (len <= 125) {
+            frame.push_back(static_cast<char>(len));
+        } else {
+            frame.push_back(126);
+            frame.push_back(static_cast<char>((len >> 8) & 0xFF));
+            frame.push_back(static_cast<char>(len & 0xFF));
+        }
+        frame += message;
+        send(socket, frame.c_str(), frame.size(), 0);
+}
+
+bool WebSocketHandler::performWebSocketHandshake(int socket) {
+       const int BUFFER_SIZE = 1024;
+    char buffer[BUFFER_SIZE];
+
+  
+    ssize_t bytesRead = recv(socket, buffer, BUFFER_SIZE, 0);
+    if (bytesRead <= 0) {
+        std::cerr << "Error reading WebSocket handshake request.\n";
+        return false;
     }
 
-    // Send the frame to the client
-    std::cout<<"encode and send is succesful"<<std::endl;
-    send(new_socket, frame, len + 6, 0);
+    // Null-terminate the buffer
+    buffer[bytesRead] = '\0';
+
+    // Find the WebSocket key in the client's request
+    const char* keyStart = strstr(buffer, "Sec-WebSocket-Key: ") + 19;
+    const char* keyEnd = strchr(keyStart, '\r');
+    if (!keyStart || !keyEnd) {
+        std::cerr << "Invalid WebSocket handshake request.\n";
+        return false;
+    }
+
+    // Extract the key
+    std::string clientKey(keyStart, keyEnd - keyStart);
+
+    // Concatenate the key with the magic string
+    const char magicString[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    std::string concatenatedKey = clientKey + magicString;
+
+    // Compute SHA-1 hash
+    unsigned char sha1Hash[SHA_DIGEST_LENGTH];
+    SHA1(reinterpret_cast<const unsigned char*>(concatenatedKey.c_str()), concatenatedKey.length(), sha1Hash);
+
+    // Encode the hash as Base64
+    BIO* bmem = BIO_new(BIO_s_mem());
+    BIO* b64 = BIO_new(BIO_f_base64());
+
+    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+    BIO_push(b64, bmem);
+    BIO_write(b64, sha1Hash, SHA_DIGEST_LENGTH);
+    BIO_flush(b64);
+
+    char base64Hash[64];
+    BUF_MEM* bptr;
+    BIO_get_mem_ptr(b64, &bptr);
+    strncpy(base64Hash, bptr->data, sizeof(base64Hash) - 1);
+    base64Hash[sizeof(base64Hash) - 1] = '\0';
+
+    // Remove newline character from Base64 encoding
+    for (int i = 0; i < sizeof(base64Hash); ++i) {
+        if (base64Hash[i] == '\n') {
+            base64Hash[i] = '\0';
+            break;
+        }
+    }
+
+    BIO_free_all(b64);
+
+    // Send the WebSocket handshake response to the client
+    std::ostringstream response;
+    response << "HTTP/1.1 101 Switching Protocols\r\n";
+    response << "Upgrade: websocket\r\n";
+    response << "Connection: Upgrade\r\n";
+    response << "Sec-WebSocket-Accept: " << base64Hash << "\r\n";
+    response << "\r\n";
+
+    std::string responseStr = response.str();
+    send(socket, responseStr.c_str(), responseStr.length(), 0);
+
+    return true;
 }
 
 int WebSocketHandler::parseWebSocketFrame(char *buffer, int len, char *output) {
-    if (len < 6) {
-        std::cout << "len < 6\n\n";
+      if (len < 6) {
+        cout << "len < 6\n\n";
         return -1; // Insufficient data for header
     }
 
@@ -92,70 +228,174 @@ int WebSocketHandler::parseWebSocketFrame(char *buffer, int len, char *output) {
         }
     }
 
-    std::cout << "this will give an invalid frame\n";
+    cout << "this will give an invalid frame\n";
     return -1; // Invalid frame
 }
 
-class TicTacToeGame {
-public:
-    static std::vector<Game> games;
-    //Game* currentGame;
-    static void initializeBoard(Game* game);
-    //static void initializeBoard(char board[BOARD_SIZE][BOARD_SIZE]);
-    static void printBoard(char board[BOARD_SIZE][BOARD_SIZE]);
-    static bool checkWin(char board[BOARD_SIZE][BOARD_SIZE], char symbol);
-    static bool checkDraw(char board[BOARD_SIZE][BOARD_SIZE]);
-    static void broadcastUpdatedBoard(Game *game);
-};
+void ClientHandler::handlePlayerMoves(Game* currentGame, int playerNumber) {
+      while (true) {
+      
+   
+		char buffer[1024];
+		ssize_t bytesRead = read(currentGame->players[playerNumber].socket, buffer, sizeof(buffer));
+		
 
-void TicTacToeGame::broadcastUpdatedBoard(Game *game) {
-    gameMutex.lock(); // Lock the mutex before broadcasting
-    char message[1024];
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            snprintf(message, sizeof(message), "%d,%d,%c", i, j, game->board[i][j]);
-            std::cout<<"in broadcastUpdatedBoard and the message sent is "<<message<<std::endl;
-            if (game->board[i][j] == 'X' || game->board[i][j] == 'O') {
-            std::cout<<"game->clientSockets.size()"<<game->clientSockets.size()<<std::endl;
-                for (size_t k = 0; k < game->clientSockets.size(); k++) {
-                std::cout<<"about to encode and send"<<std::endl;
-                    WebSocketHandler::encodeAndSend(message, strlen(message), game->clientSockets[k]);
-                }
-            }
-        }
+		if (bytesRead > 0) {
+		    char message[1024];
+		    int payload_len = WebSocketHandler::parseWebSocketFrame(buffer, bytesRead, message);
+
+		    if (payload_len > 0) {
+		        int row, col;
+		        sscanf(message, "%d %d", &row, &col);
+		        
+
+		        if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE  && (f==-1 || f!=playerNumber)) {
+		        
+				    currentGame->printboard(currentGame->board);
+				    currentGame->board[row][col] = currentGame->players[playerNumber].symbol;
+				    currentGame->printboard(currentGame->board);
+
+				    // Broadcast the updated board to all connected clients
+				    currentGame->broadcastUpdatedBoard(currentGame->board);
+				    f=playerNumber;
+				    
+				
+				    if (Game::checkWin(currentGame->board, 'X')) {
+				        // Handle win
+				        const char* winMessage = "You won!";
+				        const char* winMessage2 = "Player 1 won!";
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[0].socket, winMessage);
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[1].socket, winMessage2);
+				       
+				        break;
+				    } 
+				     else if (Game::checkWin(currentGame->board, 'O')) {
+				        // Handle win
+				        const char* winMessage = "You won!";
+				        const char* winMessage2 = "Player 2 won!";
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[1].socket, winMessage);
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[0].socket, winMessage2);
+				      
+				        break;
+				    }else if (Game::checkDraw(currentGame->board)){
+				        // Handle draw
+				        const char* drawMessage = "Its a draw!";
+				       
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[1].socket, drawMessage);
+				        WebSocketHandler::sendWebSocketFrame(currentGame->players[0].socket, drawMessage);
+				        f=playerNumber;
+				        
+				        
+				        break;
+				    }
+			  }
+			    else {
+				    cout<<"invalidmove"<<endl;
+				   
+				    const char* invalidMoveMessage = "Invalid move!";
+				    WebSocketHandler::sendWebSocketFrame(currentGame->players[playerNumber].socket, invalidMoveMessage);
+				    f=playerNumber;
+				    
+			    }
+		      }
+		}
+	
+    	
+
+    }}
+
+
+
+void Game::handleGame(Game* currentGame) {
+ 
+    if(currentGame->players.size()==1){
+    currentGame->players[0].symbol = 'X';
+    currentGame->broadcastUpdatedBoard(currentGame->board);
+     std::cout<<"goint to handleplayermoves im player 1"<<std::endl;
+    ClientHandler::handlePlayerMoves(currentGame, 0);}
+    
+     if(currentGame->players.size()==2){
+    currentGame->players[1].symbol = 'O';
+
+	currentGame->broadcastUpdatedBoard(currentGame->board);
+	 std::cout<<"goint to handleplayermoves im player 2"<<std::endl;
+    ClientHandler::handlePlayerMoves(currentGame, 1);}
+
+   
+
+   
+  
+  
+   
+
+    // Close sockets and clean up
+    for (const auto& player : currentGame->players) {
+        close(player.socket);
     }
-    gameMutex.unlock(); // Unlock the mutex after broadcasting
+    currentGame->initialize();  // Reset the game state
+}
+
+void ClientHandler::handleClient(int clientSocket) {
+    if (!WebSocketHandler::performWebSocketHandshake(clientSocket)) {
+            close(clientSocket);
+            return;
+        }
+
+        Player newPlayer(clientSocket, ' ');
+            int currentGameIndex = -1;
+    
+	
+
+ 
+    map<int,Game>::iterator it = games.begin();
+
+    
+    while(it!=games.end() ){
+    if( it->first%2==0 && it->second.players.size()==1){
+    
+    std::cout<<"for second player"<<std::endl;
+    
+    currentGameIndex=2;
+    Player player2(clientSocket, ' ');
+    it->second.addPlayer(player2);
+    games[clientSocket]=it->second;
+    std::cout<<"after second player of"<<it->first<<" and clientsocket "<<clientSocket<<" the player size is "<<it->second.players.size()<<std::endl; }  
+    it++;
+
+    }
+    
+    
+
+    
+   
+        // Create a new game if no available game found
+        if (currentGameIndex == -1) {
+        std::cout<<"new player and newgame  getting assigned"<<std::endl;
+        Game newgame;
+        newgame.initialize();
+        games[clientSocket]=newgame;
+        games[clientSocket].addPlayer(newPlayer);
+        currentGameIndex = clientSocket;
+        std::cout<<"after creating newgame the player size is "<<games[clientSocket].players.size()<<" of clientsocket "<<clientSocket<<std::endl; 
+
+
+        
+
+    }
+        // Notify the player of their symbol
+        
+        std::string symbolMessage = "You are Player " + std::to_string(games[clientSocket].players.size());
+        WebSocketHandler::sendWebSocketFrame(clientSocket, symbolMessage);
+
+
+             Game::handleGame(& games[clientSocket]);
+        //}
 }
 
 
-void TicTacToeGame::initializeBoard(Game* currentGame) {
-std::cout<<"currentGame in initializing "<<currentGame<<std::endl;
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            currentGame->board[i][j] = ' ';
-        }
-    }
+bool Game::checkWin(char board[BOARD_SIZE][BOARD_SIZE], char symbol) {
 
-    std::cout << "after initializing board:\n";
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            std::cout << currentGame->board[i][j];
-        }
-        std::cout << "\n";
-    }
-}
-
-void TicTacToeGame::printBoard(char board[BOARD_SIZE][BOARD_SIZE]) {
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            std::cout << board[i][j] << ' ';
-        }
-        std::cout << "\n";
-    }
-}
-
-bool TicTacToeGame::checkWin(char board[BOARD_SIZE][BOARD_SIZE], char symbol) {
-    for (int i = 0; i < BOARD_SIZE; i++) {
+      for (int i = 0; i < BOARD_SIZE; i++) {
         if ((board[i][0] == symbol && board[i][1] == symbol && board[i][2] == symbol) ||
             (board[0][i] == symbol && board[1][i] == symbol && board[2][i] == symbol)) {
             return true;
@@ -171,284 +411,87 @@ bool TicTacToeGame::checkWin(char board[BOARD_SIZE][BOARD_SIZE], char symbol) {
     return false;
 }
 
-bool TicTacToeGame::checkDraw(char board[BOARD_SIZE][BOARD_SIZE]) {
-    for (int i = 0; i < BOARD_SIZE; i++) {
+
+bool Game::checkDraw(char board[BOARD_SIZE][BOARD_SIZE]) {
+std::cout<<"checking draw"<<std::endl;
+int x=0;
+        for (int i = 0; i < BOARD_SIZE; i++) {
+        
         for (int j = 0; j < BOARD_SIZE; j++) {
-            if (board[i][j] == ' ') {
-                return false; // There is an empty space, game not draw
+
+            if (board[i][j] == 'O' ||board[i][j] == 'X') {
+            x++;
+            
+          
+                 // There is an empty space, game not draw
             }
+            
+            
         }
     }
+    if(x==5) return true;
+    else return false;
+   
     return true; // Board is full, game draw
-}
-
-class ClientHandler {
-public:
-    static void handleWebSocket(int clientSocket, int playerNumber);
-    static void handlePlayerMoves(Game *currentGame, int playerNumber);
-   
-};
-std::vector<Game> TicTacToeGame::games;
-
-
-void ClientHandler::handlePlayerMoves(Game *currentGame, int playerNumber) {
-
-std::cout<<"in handlePlayerMoves the playerNumber is "<<playerNumber<<std::endl;
-std::cout<<"in handlePlayerMoves the ,currentGame of  playerNumber"<<playerNumber<<" is "<<currentGame<<std::endl;
-
-    char buffer[1024];
-    ssize_t bytesRead;
-    TicTacToeGame::initializeBoard(currentGame);
-
-    while (true) {
-        // Read the WebSocket frame
-        bzero(buffer, sizeof(buffer));
-        std::cout<<"currentGame->clientSockets[playerNumber]"<<currentGame->clientSockets[playerNumber]<<std::endl;
-        bytesRead = read(currentGame->clientSockets[playerNumber], buffer, sizeof(buffer));
-std::cout<<"the buufer rcvd and bytesread"<<buffer<<bytesRead<<std::endl;
-        if (bytesRead > 0) {
-            // Parse WebSocket frame and extract payload
-            char message[1024];
-            int payload_len = WebSocketHandler::parseWebSocketFrame(buffer, bytesRead, message);
-
-            if (payload_len > 0) {
-                // Handle WebSocket data (Tic-Tac-Toe moves)
-                std::cout << "Move received from Player " << playerNumber << ": " << message << std::endl;
-
-                int row, col;
-                sscanf(message, "%d %d", &row, &col);
-                std::cout<<"rcvd msg fom the client is "<<message<<std::endl;
-                std::cout<<"currentGame->board[row][col] of "<<currentGame<<" is "<<currentGame->board[row][col]<<std::endl;
-                //&& currentGame->board[row][col] == ' '
-
-                if (row >= 0 && row < BOARD_SIZE &&
-                    col >= 0 && col < BOARD_SIZE && (currentGame->board[row][col] != 'X' || currentGame->board[row][col] != 'O')) {
-                    currentGame->board[row][col] = (playerNumber % 2 == 0) ? 'X' : 'O';
-
-                    // Broadcast the updated board to all connected clients
-                    TicTacToeGame::broadcastUpdatedBoard(currentGame);
-
-                    // Check for a win or draw
-                    if (TicTacToeGame::checkWin(currentGame->board, 'X')) {
-                        std::cout << "Player 1 wins!" << std::endl;
-                        const char* msg1 = "you won!";
-                        const char* msg2 = "Player 1 won!";
-                        WebSocketHandler::encodeAndSend(msg1, strlen(msg1), currentGame->clientSockets[1]);
-                        WebSocketHandler::encodeAndSend(msg2, strlen(msg2), currentGame->clientSockets[0]);
-                        break;
-                    } else if (TicTacToeGame::checkWin(currentGame->board, 'O')) {
-                        std::cout << "Player 2 wins!" << std::endl;
-                        const char* msg1 = "you won!";
-                        const char* msg2 = "Player 2 won!";
-                        WebSocketHandler::encodeAndSend(msg1, strlen(msg1), currentGame->clientSockets[0]);
-                        WebSocketHandler::encodeAndSend(msg2, strlen(msg2), currentGame->clientSockets[1]);
-                        break;
-                    } else if (TicTacToeGame::checkDraw(currentGame->board)) {
-                        std::cout << "It's a draw!" << std::endl;
-                        const char* msg = "It's a draw!";
-                        WebSocketHandler::encodeAndSend(msg, strlen(msg), currentGame->clientSockets[0]);
-                        WebSocketHandler::encodeAndSend(msg, strlen(msg), currentGame->clientSockets[1]);
-                        break;
-                    }
-                } else {
-                    // Invalid move
-                    std::cout << "Invalid move received from Player " << playerNumber << std::endl;
-                }
-            } else {
-                std::cout << "Invalid WebSocket frame received" << std::endl;
-            }
-        }
-    }
-}
-
-void ClientHandler::handleWebSocket(int clientSocket, int playerNumber) {
-
-    char buffer[1024];
-    ssize_t bytesRead;
-    char board[BOARD_SIZE][BOARD_SIZE];
-    //TicTacToeGame::initializeBoard(currentGame);
-
-    // Read the WebSocket handshake request
-    bytesRead = read(clientSocket, buffer, sizeof(buffer));
-
-    if (bytesRead > 0) {
-        // Extract the WebSocket key from the request
-        char *keyStart = strstr(buffer, "Sec-WebSocket-Key: ") + 19;
-        char *keyEnd = strchr(keyStart, '\r');
-        *keyEnd = '\0';
-
-        // Concatenate the key with the magic string
-        char concatenatedKey[128];
-        const char magicst[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-        strcpy(concatenatedKey, keyStart);
-        strcat(concatenatedKey, magicst);
-
-        // Compute SHA-1 hash
-        static unsigned char sha1Hash[SHA_DIGEST_LENGTH];
-        SHA1((const unsigned char *)concatenatedKey, strlen(concatenatedKey), sha1Hash);
-
-        // Encode the hash as Base64
-        BIO *bmem = BIO_new(BIO_s_mem());
-        BIO *b64 = BIO_new(BIO_f_base64());
-
-        BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-        BIO_push(b64, bmem);
-        BIO_write(b64, sha1Hash, SHA_DIGEST_LENGTH);
-        BIO_flush(b64);
-
-        char *base64Hash = (char *)malloc(40);
-        int Length;
-        BUF_MEM *bptr;
-        BIO_get_mem_ptr(b64, &bptr);
-        strcpy(base64Hash, bptr->data);
-        Length = strlen(base64Hash);
-
-        // Remove newline character from Base64 encoding
-        if (Length > 0 && base64Hash[Length - 1] == '\n') {
-            Length--;
-        }
-        std::cout << std::endl;
-        std::cout << "the base is:" << base64Hash << std::endl;
-        BIO_free_all(b64);
-
-        // Respond with the WebSocket handshake
-        const char *responseFormat = "HTTP/1.1 101 Switching Protocols\r\n"
-                                     "Upgrade: websocket\r\n"
-                                     "Connection: Upgrade\r\n"
-                                     "Sec-WebSocket-Accept: %.*s\r\n"
-                                     "\r\n";
-        char response[256];
-        snprintf(response, sizeof(response), responseFormat, Length, base64Hash);
-        write(clientSocket, response, strlen(response));
-    }
-    std::cout<<"after handshake"<<std::endl;
-
-    // Assign the player to a game
-    gameMutex.lock();
-    //Game *currentGame = nullptr;
-    int currentGameIndex = -1;
-    
-	std::cout<<"TicTacToeGame::games.size()"<<TicTacToeGame::games.size()<<std::endl;
-    for (int i=0;i<TicTacToeGame::games.size();i++){
-    
-        if (TicTacToeGame::games[i].playerCount < 2) {
-            //currentGame = &TicTacToeGame::games[i];
-             currentGameIndex = i;
-            TicTacToeGame::games[i].clientSockets[1] = clientSocket;
-            //currentGame = &game;
-            break;
-        }
-    }
-   
-        // Create a new game if no available game found
-        if (currentGameIndex == -1) {
-        Game newgame;
-        newgame.initialize();
-        TicTacToeGame::games.push_back(newgame);
-        std::cout<<"after creating newgame TicTacToeGame::games.size()"<<TicTacToeGame::games.size()<<std::endl;
-        //currentGame = &TicTacToeGame::games.back();
-        currentGameIndex=TicTacToeGame::games.size()-1;
-                
-        TicTacToeGame::games[currentGameIndex].clientSockets[0] = clientSocket;
-        //currentGame->playerCount = 0;
-    }
-    std::cout<<"currentGameIndex"<<currentGameIndex<<std::endl;
-    gameMutex.unlock();
-    (&TicTacToeGame::games[currentGameIndex])->playerCount++;
-    gameMutex.unlock();
-    //currentGame->playerCount++;
-
-    //gameMutex.unlock();
-    std::cout<<"the playercount"<<(&TicTacToeGame::games[currentGameIndex])->playerCount<<std::endl;
-
-    //currentGame->playerCount++;
-    std::cout<<"&TicTacToeGame::games[currentGameIndex]"<<&TicTacToeGame::games[currentGameIndex]<<std::endl;
-    //TicTacToeGame::broadcastUpdatedBoard(&TicTacToeGame::games[currentGameIndex]);
-    TicTacToeGame::initializeBoard(&TicTacToeGame::games[currentGameIndex]); 
-    ClientHandler::handlePlayerMoves(&TicTacToeGame::games[currentGameIndex], (&TicTacToeGame::games[currentGameIndex])->playerCount - 1);
-
-    close(clientSocket);
-}
-
-std::vector<Game> games; // Maintain a vector of active games
-
-void *handleWebSocketThread(void *arg) {
-std::cout<<std::endl;
-std::cout<<"///////////////////////////////////////////////////////////////"<<std::endl;
-std::cout<<"in handleWebSocketThread"<<std::endl;
-//int* clientSocketPtr = static_cast<int*>(arg);
-//pthread_t threadId = pthread_self();
-    //std::cout << "Thread ID: " << threadId << std::endl;
-    int clientSocket = *(int *)arg;
-    //free(arg);
-    //std::unique_lock<std::mutex> lock(gameMutex);
-    int currentPlayerNumber = playerNumberCounter++;
-    std::cout<<"currentplayernumber"<<currentPlayerNumber<<std::endl;
-    gameMutex.unlock();
-
-    ClientHandler::handleWebSocket(clientSocket, currentPlayerNumber);
-
-    close(clientSocket);
-    //pthread_exit(NULL);
-     //delete clientSocketPtr;
-    pthread_exit(NULL);
 }
 
 int main() {
     int serverSocket, clientSocket;
     struct sockaddr_in serverAddr, clientAddr;
-    socklen_t clientAddrLen = sizeof(clientAddr);
+    socklen_t clientLen = sizeof(clientAddr);
 
-    // Create socket
+    // Create server socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSocket == -1) {
-        perror("Error creating socket");
-        exit(EXIT_FAILURE);
+        std::cerr << "Error creating server socket.\n";
+        return -1;
     }
 
-    // Set the socket option to allow address reuse
-    int reuseAddr = 1;
-    if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, sizeof(reuseAddr)) == -1) {
-        perror("Error setting socket option");
-        exit(EXIT_FAILURE);
+	int opt = 1;
+    if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        std::cerr << "Error setting socket options.\n";
+        close(serverSocket);
+        return -1;
     }
-
-    // Set up server address
-    memset(&serverAddr, 0, sizeof(serverAddr));
+    // Set up server address struct
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons(PORT);
 
-    // Bind the socket
-    if (bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
-        perror("Error binding socket");
-        exit(EXIT_FAILURE);
+    // Bind the server socket
+    if (bind(serverSocket, reinterpret_cast<struct sockaddr*>(&serverAddr), sizeof(serverAddr)) == -1) {
+        std::cerr << "Error binding server socket.\n";
+        close(serverSocket);
+        return -1;
     }
 
     // Listen for incoming connections
-    if (listen(serverSocket, 8) == -1) {
-        perror("Error listening for connections");
-        exit(EXIT_FAILURE);
+    if (listen(serverSocket, 5) == -1) {
+        std::cerr << "Error listening for connections.\n";
+        close(serverSocket);
+        return -1;
     }
 
-    std::cout << "WebSocket Server listening on port " << PORT << std::endl;
+    std::cout << "Server listening on port " << PORT << ".\n";
 
-    while (1) {
-        // Accept connections from clients
-        clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientAddrLen);
+    while (true) {
+        // Accept incoming connection
+        clientSocket = accept(serverSocket, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
         if (clientSocket == -1) {
-            perror("Error accepting connection");
+            std::cerr << "Error accepting connection.\n";
             continue;
         }
 
+        // Start a new thread to handle the client
+        std::cout<<std::endl;
+        std::cout<<"////////////////////////////////////////////////"<<endl;
         
-        thread th(&handleWebSocketThread,&clientSocket);
-        th.detach();
-      
+        
+        std::thread(ClientHandler::handleClient, clientSocket).detach();
     }
 
+    // Close server socket (this part may not be reached in practice)
     close(serverSocket);
-    pthread_exit(NULL);
 
     return 0;
 }
