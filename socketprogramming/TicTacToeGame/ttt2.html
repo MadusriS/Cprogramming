@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic Tac Toe</title>
+    <style>
+        body {
+            font-family: 'Cursive', sans-serif;
+            text-align: center;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        h1 {
+            color: #d9534f;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            margin: 20px auto;
+        }
+
+        td {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #d9534f;
+            text-align: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        td:hover {
+            background-color: #f2f2f2;
+        }
+
+        #result {
+            margin-top: 20px;
+            font-size: 1.5em;
+            color: #d9534f;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <h1>Tic Tac Toe</h1>
+    <table id="board">
+        <tr>
+            <td onclick="play(0, 0)"></td>
+            <td onclick="play(0, 1)"></td>
+            <td onclick="play(0, 2)"></td>
+        </tr>
+        <tr>
+            <td onclick="play(1, 0)"></td>
+            <td onclick="play(1, 1)"></td>
+            <td onclick="play(1, 2)"></td>
+        </tr>
+        <tr>
+            <td onclick="play(2, 0)"></td>
+            <td onclick="play(2, 1)"></td>
+            <td onclick="play(2, 2)"></td>
+        </tr>
+    </table>
+    <div id="result"></div>
+    <script>
+        const ws = new WebSocket("ws://localhost:3002");
+
+        ws.onopen = function(event) {
+            console.log("Connected to the server");
+        };
+
+        ws.onmessage = function(event) {
+            console.log("Received message from server: ", event.data);
+
+            if (event.data.includes(",")) {
+                let [x, y, symbol] = event.data.split(",");
+                document.getElementById("board").rows[x].cells[y].innerText = symbol;
+            } else if (event.data.includes("won") || event.data.includes("draw")) {
+                document.getElementById("result").innerText = event.data;
+            }
+        };
+
+        function play(x, y) {
+            ws.send(x + " " + y);
+        }
+    </script>
+</body>
+</html>
+
